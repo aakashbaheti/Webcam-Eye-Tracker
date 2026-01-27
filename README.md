@@ -1,72 +1,72 @@
-=# 👁️ Eye Tracking Heatmap Demo
+# 👁️ Eye Tracking Heatmap Demo
 
-A browser-based eye-tracking demo that uses a webcam to estimate where a user is looking on an image. The app supports **calibration**, a **live gaze dot**, and a **heatmap visualization**.
+A browser-based eye tracking application that uses a webcam to estimate where a user is looking on an image. The system supports **calibration directly on the image**, a **live gaze dot**, and a **heatmap visualization** of visual attention.
 
-> Webcam-based eye tracking is approximate and intended for demos, UX studies, and coursework — not research-grade analysis.
+> This project is intended for demos, UX studies, and coursework. Webcam-based eye tracking is approximate and not research-grade.
 
 ---
 
 ## ✨ Features
 
 * Webcam-based eye tracking (no paid hardware)
-* Calibration dots placed **directly on the image**
-* Live red gaze dot
-* Heatmap of gaze concentration
-* Works with uploaded images of any size
-* Optional CSV export
+* Image-based calibration (blue dots appear on the image)
+* Live gaze dot overlay
+* Heatmap visualization of gaze attention
+* Works with uploaded images of any size or aspect ratio
+
+---
+
+## 🛠️ Technology Stack & Languages
+
+**Languages**
+
+* JavaScript (ES6)
+* HTML5
+* CSS3
+
+**Libraries / Tools**
+
+* WebGazer.js (Brown HCI)
+* HTML5 Canvas
+* Browser Web APIs (Webcam, DOM)
+* VS Code + Live Server
 
 ---
 
 ## 🚀 How to Run
 
 1. Open the project in **VS Code**
-2. Use **Live Server**
-3. Open: `http://127.0.0.1:5500/index.html`
+2. Start **Live Server** on `index.html`
+3. Allow webcam access in the browser
 
-> Webcam access will not work via `file://`.
+> Webcam access requires `http://localhost` (opening the file directly will not work).
 
 ---
 
 ## 🎯 How to Use
 
-1. **Start** → allow webcam access
-2. **Calibrate (9 dots)**
-
-   * Stare at each blue dot and click it several times
-3. Look at the image
-4. **Show Heatmap** to visualize attention
+1. Click **Start** to begin gaze tracking
+2. Click **Calibrate** and stare at each blue dot while clicking it several times
+3. Look at the image to see the live gaze dot
+4. Click **Show Heatmap** to visualize areas of attention
 
 ---
 
 ## 🎛️ Accuracy Notes
 
-* Calibration quality strongly affects accuracy
-* Smoothing and noise filtering reduce jitter
-* Expect ~1–3 cm error on screen
-
-Tunable values in `app.js`:
-
-```js
-const SMOOTHING = 0.20;
-const DEAD_PX = 4;
-```
+* Accuracy improves with more calibration clicks
+* Gaze smoothing and jitter reduction are applied
+* Best results with stable head position and good lighting
 
 ---
 
 ## ⚠️ Limitations
 
+* Approximate gaze estimation (~1–3 cm screen error)
 * Sensitive to lighting and head movement
-* Accuracy drifts over time → recalibrate as needed
-* Not suitable for medical or research use
+* Not suitable for medical or research-grade analysis
 
----
 
-## 🧠 Tech Stack
-
-* WebGazer.js
-* HTML / CSS / JavaScript
-* HTML5 Canvas
-* Webcam (browser API)
 
 
 <img width="1120" height="628" alt="image" src="https://github.com/user-attachments/assets/bf321f89-37c3-4cc8-8269-365c71d97274" />
