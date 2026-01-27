@@ -1,4 +1,4 @@
-# 👁️ Eye Tracking Heatmap Demo
+# 👁️ Webcam Eye Tracker
 
 A browser-based eye tracking application that uses a webcam to estimate where a user is looking on an image. The system supports **calibration directly on the image**, a **live gaze dot**, and a **heatmap visualization** of visual attention.
 
