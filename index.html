@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Eye Tracker Demo</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <h2>Eye Tracking Software</h2>
+
+    <div id="controls">
+      <input type="file" id="imageUpload" accept="image/*" />
+      <button id="startBtn">Start</button>
+      <button id="calibrateBtn">Calibrate (13 dots)</button>
+      <button id="heatmapBtn">Show Heatmap</button>
+      <span id="status"></span>
+    </div>
+
+    <div id="stage">
+      <img id="stimulus" src="test.jpg" alt="Stimulus" />
+      <canvas id="overlay"></canvas>
+      <div id="calibration-overlay"></div>
+    </div>
+
+    <!-- IMPORTANT: use hosted WebGazer build -->
+    <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+
+    <!-- your code -->
+    <script src="./app.js"></script>
+  </body>
+</html>

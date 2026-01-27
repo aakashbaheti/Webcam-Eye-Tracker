@@ -1,0 +1,9 @@
+# OS junk
+.DS_Store
+
+# Dependencies / binaries
+node_modules/
+mediapipe/
+
+# Optional
+.env
