@@ -11,6 +11,8 @@ let lastDrawnPos = null; // Track last position for stability checks
 let heatmapData = []; // Store all gaze points for heatmap
 let showingHeatmap = false; // Toggle between live dot and heatmap
 let latestMapped = null; // Latest mapped gaze point for render loop
+let latestDisplay = null; // Display-stabilized point for drawing
+let lastDisplayPos = null; // Last display point for jitter control
 let lastSampleTs = null; // Timestamp tracking for adaptive filters
 let renderRaf = null; // RAF id for draw loop
 
@@ -72,6 +74,10 @@ class OneEuroFilter {
 
 const gazeFilterX = new OneEuroFilter(60, 1.1, 0.01, 1.0);
 const gazeFilterY = new OneEuroFilter(60, 1.1, 0.01, 1.0);
+const JITTER_DEADZONE_PX = 2.0; // Ignore tiny movement visually
+const DISPLAY_ALPHA_STILL = 0.12; // Strong stabilization when still
+const DISPLAY_ALPHA_MOVE = 0.32; // Looser stabilization when moving
+const DISPLAY_SPEED_PX = 60; // Speed threshold for switching smoothing
 
 /* ------------------ helpers ------------------ */
 
@@ -279,6 +285,8 @@ function stopWebgazer() {
   tracking = false;
   lastDrawnPos = null; // Reset position tracking
   latestMapped = null;
+  latestDisplay = null;
+  lastDisplayPos = null;
   lastSampleTs = null;
   gazeFilterX.reset();
   gazeFilterY.reset();
@@ -296,6 +304,8 @@ function resetAll() {
   showingHeatmap = false;
   lastDrawnPos = null;
   latestMapped = null;
+  latestDisplay = null;
+  lastDisplayPos = null;
   lastSampleTs = null;
   gazeFilterX.reset();
   gazeFilterY.reset();
@@ -353,6 +363,8 @@ function startGazeTracking() {
     if (!mapped.inside) {
       lastDrawnPos = null;
       latestMapped = null;
+      latestDisplay = null;
+      lastDisplayPos = null;
       return;
     }
 
@@ -380,6 +392,27 @@ function startGazeTracking() {
     lastDrawnPos = { x: mapped.x, y: mapped.y };
     latestMapped = { x: mapped.x, y: mapped.y };
 
+    // Display-only stabilization (keeps raw accuracy for logs/heatmap)
+    if (!lastDisplayPos) {
+      lastDisplayPos = { x: mapped.x, y: mapped.y };
+      latestDisplay = { x: mapped.x, y: mapped.y };
+    } else {
+      const ddx = mapped.x - lastDisplayPos.x;
+      const ddy = mapped.y - lastDisplayPos.y;
+      const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+      const speed = dist / dt;
+      const alpha = speed < DISPLAY_SPEED_PX ? DISPLAY_ALPHA_STILL : DISPLAY_ALPHA_MOVE;
+
+      if (dist < JITTER_DEADZONE_PX) {
+        latestDisplay = { x: lastDisplayPos.x, y: lastDisplayPos.y };
+      } else {
+        const sx = lastDisplayPos.x + ddx * alpha;
+        const sy = lastDisplayPos.y + ddy * alpha;
+        lastDisplayPos = { x: sx, y: sy };
+        latestDisplay = { x: sx, y: sy };
+      }
+    }
+
     // Collect data for heatmap (sample every 3rd point to reduce memory usage)
     if (gazeLog.length % 3 === 0) {
       heatmapData.push({ x: mapped.x, y: mapped.y });
@@ -397,8 +430,8 @@ function startGazeTracking() {
   tracking = true; // Enable tracking after listener is set
   if (!renderRaf) {
     const renderLoop = () => {
-      if (tracking && latestMapped && !showingHeatmap) {
-        drawDot(latestMapped.x, latestMapped.y);
+      if (tracking && latestDisplay && !showingHeatmap) {
+        drawDot(latestDisplay.x, latestDisplay.y);
       }
       renderRaf = requestAnimationFrame(renderLoop);
     };
@@ -508,6 +541,8 @@ async function runCalibration() {
   // Start gaze tracking NOW, after calibration is complete
   lastDrawnPos = null;
   latestMapped = null;
+  latestDisplay = null;
+  lastDisplayPos = null;
   lastSampleTs = null;
   gazeFilterX.reset();
   gazeFilterY.reset();
