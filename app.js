@@ -5,12 +5,72 @@ const ctx = canvas.getContext("2d");
 let gazeLog = [];
 let running = false;
 let tracking = false; // Separate flag for whether to draw gaze dots
-let gazeHistory = []; // Track last few gaze points for smoothing
-const GAZE_SMOOTH_SIZE = 15; // Increased from 10 to 15 for much smoother tracking
-const GAZE_CONFIDENCE_THRESHOLD = 0.5; // Filter low confidence predictions
+const GAZE_CONFIDENCE_THRESHOLD = 0.55; // Filter low confidence predictions
 let lastDrawnPos = null; // Track last position for stability checks
 let heatmapData = []; // Store all gaze points for heatmap
 let showingHeatmap = false; // Toggle between live dot and heatmap
+let latestMapped = null; // Latest mapped gaze point for render loop
+let lastSampleTs = null; // Timestamp tracking for adaptive filters
+let renderRaf = null; // RAF id for draw loop
+
+// One Euro Filter for adaptive smoothing (stable when still, responsive when moving)
+class LowPassFilter {
+  constructor(alpha, initialValue = null) {
+    this.alpha = alpha;
+    this.hasLast = initialValue !== null;
+    this.last = initialValue;
+  }
+  filter(value) {
+    if (!this.hasLast) {
+      this.last = value;
+      this.hasLast = true;
+      return value;
+    }
+    const filtered = this.alpha * value + (1 - this.alpha) * this.last;
+    this.last = filtered;
+    return filtered;
+  }
+  setAlpha(alpha) {
+    this.alpha = alpha;
+  }
+}
+
+function alphaForCutoff(cutoff, dt) {
+  const tau = 1.0 / (2 * Math.PI * cutoff);
+  return 1.0 / (1.0 + tau / dt);
+}
+
+class OneEuroFilter {
+  constructor(freq, minCutoff = 1.0, beta = 0.007, dCutoff = 1.0) {
+    this.freq = freq;
+    this.minCutoff = minCutoff;
+    this.beta = beta;
+    this.dCutoff = dCutoff;
+    this.x = new LowPassFilter(alphaForCutoff(minCutoff, 1.0 / freq));
+    this.dx = new LowPassFilter(alphaForCutoff(dCutoff, 1.0 / freq));
+    this.lastTime = null;
+  }
+  filter(value, timestampSec) {
+    if (this.lastTime !== null && timestampSec !== null) {
+      const dt = Math.max(1e-3, timestampSec - this.lastTime);
+      this.freq = 1.0 / dt;
+    }
+    this.lastTime = timestampSec;
+    const dValue = this.x.hasLast ? (value - this.x.last) * this.freq : 0.0;
+    const edValue = this.dx.filter(dValue);
+    const cutoff = this.minCutoff + this.beta * Math.abs(edValue);
+    this.x.setAlpha(alphaForCutoff(cutoff, 1.0 / this.freq));
+    return this.x.filter(value);
+  }
+  reset() {
+    this.x = new LowPassFilter(alphaForCutoff(this.minCutoff, 1.0 / this.freq));
+    this.dx = new LowPassFilter(alphaForCutoff(this.dCutoff, 1.0 / this.freq));
+    this.lastTime = null;
+  }
+}
+
+const gazeFilterX = new OneEuroFilter(60, 1.1, 0.01, 1.0);
+const gazeFilterY = new OneEuroFilter(60, 1.1, 0.01, 1.0);
 
 /* ------------------ helpers ------------------ */
 
@@ -216,8 +276,13 @@ async function startWebgazer() {
 function stopWebgazer() {
   running = false;
   tracking = false;
-  gazeHistory = []; // Clear history when stopping
   lastDrawnPos = null; // Reset position tracking
+  latestMapped = null;
+  lastSampleTs = null;
+  gazeFilterX.reset();
+  gazeFilterY.reset();
+  if (renderRaf) cancelAnimationFrame(renderRaf);
+  renderRaf = null;
   if (webgazer.end) webgazer.end();
   setStatus("Stopped");
 }
@@ -232,6 +297,11 @@ function startGazeTracking() {
 
     const gx = data.x;
     const gy = data.y;
+    const conf = typeof data.confidence === "number" ? data.confidence : 1;
+    const ts = typeof timestamp === "number" ? timestamp : performance.now();
+    const tsSec = ts / 1000;
+
+    if (conf < GAZE_CONFIDENCE_THRESHOLD) return;
 
     // Filter out likely bad predictions (extreme coordinates or NaN)
     if (isNaN(gx) || isNaN(gy) || gx < -100 || gx > window.innerWidth + 100 || 
@@ -239,26 +309,10 @@ function startGazeTracking() {
       return;
     }
 
-    // Add to history for smoothing
-    gazeHistory.push({ x: gx, y: gy });
-    if (gazeHistory.length > GAZE_SMOOTH_SIZE) {
-      gazeHistory.shift();
-    }
-
-    // Use exponential weighted moving average for better smoothing
-    // Recent points have exponentially more weight
-    let weightedX = 0, weightedY = 0, totalWeight = 0;
-    gazeHistory.forEach((point, idx) => {
-      // Exponential weight: e^(idx/5) grows exponentially
-      const weight = Math.exp((idx) / 4);
-      weightedX += point.x * weight;
-      weightedY += point.y * weight;
-      totalWeight += weight;
-    });
-
+    // Adaptive smoothing (One Euro Filter)
     const smoothedGaze = {
-      x: weightedX / totalWeight,
-      y: weightedY / totalWeight
+      x: gazeFilterX.filter(gx, tsSec),
+      y: gazeFilterY.filter(gy, tsSec)
     };
 
     const mapped = screenToImageCoords(smoothedGaze.x, smoothedGaze.y);
@@ -266,27 +320,34 @@ function startGazeTracking() {
     // Only update if we have a valid position and it's on the image
     if (!mapped.inside) {
       lastDrawnPos = null;
+      latestMapped = null;
       return;
     }
 
-    // Additional stability check: don't jump too far (max ~100px per frame)
+    // Stability check: clamp large jumps but allow fast saccades
+    const dt = lastSampleTs ? Math.max(0.008, (ts - lastSampleTs) / 1000) : 0.016;
+    lastSampleTs = ts;
+
     if (lastDrawnPos) {
       const dx = mapped.x - lastDrawnPos.x;
       const dy = mapped.y - lastDrawnPos.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      // If jump is too large, interpolate instead of jumping
-      if (distance > 120) {
-        // Blend with previous position (dampen large movements)
-        mapped.x = lastDrawnPos.x + (dx * 0.4);
-        mapped.y = lastDrawnPos.y + (dy * 0.4);
+
+      const maxStep = 120 + 550 * dt; // allow bigger jumps when dt is larger
+
+      if (distance < 1.5) {
+        mapped.x = lastDrawnPos.x;
+        mapped.y = lastDrawnPos.y;
+      } else if (distance > maxStep) {
+        const scale = maxStep / distance;
+        mapped.x = lastDrawnPos.x + dx * scale;
+        mapped.y = lastDrawnPos.y + dy * scale;
       }
     }
 
     lastDrawnPos = { x: mapped.x, y: mapped.y };
+    latestMapped = { x: mapped.x, y: mapped.y };
 
-    drawDot(mapped.x, mapped.y);
-    
     // Collect data for heatmap (sample every 3rd point to reduce memory usage)
     if (gazeLog.length % 3 === 0) {
       heatmapData.push({ x: mapped.x, y: mapped.y });
@@ -302,6 +363,15 @@ function startGazeTracking() {
   });
 
   tracking = true; // Enable tracking after listener is set
+  if (!renderRaf) {
+    const renderLoop = () => {
+      if (tracking && latestMapped && !showingHeatmap) {
+        drawDot(latestMapped.x, latestMapped.y);
+      }
+      renderRaf = requestAnimationFrame(renderLoop);
+    };
+    renderRaf = requestAnimationFrame(renderLoop);
+  }
   console.log("Gaze tracking enabled with stability improvements");
 }
 
@@ -404,6 +474,11 @@ async function runCalibration() {
   document.querySelectorAll(".calib-dot").forEach(d => d.remove());
   
   // Start gaze tracking NOW, after calibration is complete
+  lastDrawnPos = null;
+  latestMapped = null;
+  lastSampleTs = null;
+  gazeFilterX.reset();
+  gazeFilterY.reset();
   startGazeTracking();
   
   setStatus("Calibration complete! Now look at the image and check the accuracy. You can recalibrate if needed.");
