@@ -1,6 +1,7 @@
 const img = document.getElementById("stimulus");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
+const DEFAULT_IMAGE_SRC = img.getAttribute("src");
 
 let gazeLog = [];
 let running = false;
@@ -287,6 +288,37 @@ function stopWebgazer() {
   setStatus("Stopped");
 }
 
+function resetAll() {
+  stopWebgazer();
+
+  gazeLog = [];
+  heatmapData = [];
+  showingHeatmap = false;
+  lastDrawnPos = null;
+  latestMapped = null;
+  lastSampleTs = null;
+  gazeFilterX.reset();
+  gazeFilterY.reset();
+
+  if (webgazer.clearData) webgazer.clearData();
+  if (webgazer.clearGazeListener) webgazer.clearGazeListener();
+
+  const heatmapBtn = document.getElementById("heatmapBtn");
+  if (heatmapBtn) heatmapBtn.textContent = "Show Heatmap";
+
+  const imageUpload = document.getElementById("imageUpload");
+  if (imageUpload) imageUpload.value = "";
+
+  if (DEFAULT_IMAGE_SRC) img.src = DEFAULT_IMAGE_SRC;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  document.querySelectorAll(".calib-dot").forEach(d => d.remove());
+  const calibOverlay = document.getElementById("calibration-overlay");
+  if (calibOverlay) calibOverlay.style.pointerEvents = "none";
+
+  setStatus("Reset complete. Click Start to begin.");
+}
+
 function startGazeTracking() {
   console.log("startGazeTracking() called, tracking before =", tracking);
   
@@ -497,12 +529,14 @@ function initButtons() {
   
   const startBtn = document.getElementById("startBtn");
   const calibrateBtn = document.getElementById("calibrateBtn");
+  const restartBtn = document.getElementById("restartBtn");
   const heatmapBtn = document.getElementById("heatmapBtn");
   
   console.log("Button search results:", { 
     startBtn: !!startBtn, 
     calibrateBtn: !!calibrateBtn, 
-    heatmapBtn: !!heatmapBtn
+    heatmapBtn: !!heatmapBtn,
+    restartBtn: !!restartBtn
   });
 
   startBtn.addEventListener("click", () => {
@@ -515,6 +549,13 @@ function initButtons() {
     console.log("Calibrate button clicked!");
     runCalibration().catch(err => console.error("Calibration error:", err));
   });
+
+  if (restartBtn) {
+    restartBtn.addEventListener("click", () => {
+      console.log("Restart button clicked!");
+      resetAll();
+    });
+  }
 
   // Heatmap button
   if (heatmapBtn) {
